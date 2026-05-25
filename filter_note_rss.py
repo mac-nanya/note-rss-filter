@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Create a minimal RSS feed from a note.com RSS feed.
+
+The output feed keeps only the newest item and includes its title and URL.
+"""
+
+from __future__ import annotations
+
+import argparse
+from email.utils import parsedate_to_datetime
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def read_input(source: str) -> bytes:
+    if source.startswith(("http://", "https://")):
+        request = urllib.request.Request(
+            source,
+            headers={"User-Agent": "note-rss-filter/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+
+    return Path(source).read_bytes()
+
+
+def child_text(element: ET.Element, name: str) -> str:
+    child = element.find(name)
+    return child.text if child is not None and child.text else ""
+
+
+def set_child(parent: ET.Element, name: str, value: str) -> None:
+    child = ET.SubElement(parent, name)
+    child.text = value
+
+
+def item_date(item: ET.Element):
+    pub_date = child_text(item, "pubDate")
+    if not pub_date:
+        return None
+    try:
+        return parsedate_to_datetime(pub_date)
+    except (TypeError, ValueError):
+        return None
+
+
+def newest_item(items: list[ET.Element]) -> ET.Element:
+    dated_items = [(item_date(item), index, item) for index, item in enumerate(items)]
+    dated_items_with_date = [entry for entry in dated_items if entry[0] is not None]
+    if not dated_items_with_date:
+        return items[0]
+
+    return max(dated_items_with_date, key=lambda entry: (entry[0], -entry[1]))[2]
+
+
+def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
+    source_root = ET.fromstring(feed_bytes)
+    source_channel = source_root.find("channel")
+    if source_channel is None:
+        raise ValueError("RSS 2.0 feed with <channel> is required")
+
+    items = source_channel.findall("item")
+    if not items:
+        raise ValueError("RSS feed has no <item>")
+
+    source_item = newest_item(items)
+
+    root = ET.Element("rss", {"version": "2.0"})
+    channel = ET.SubElement(root, "channel")
+
+    for name in ("title", "link"):
+        set_child(channel, name, child_text(source_channel, name))
+
+    set_child(channel, "description", "最新1件の記事タイトルとURL")
+
+    item = ET.SubElement(channel, "item")
+    for name in ("title", "link"):
+        value = child_text(source_item, name)
+        if value:
+            set_child(item, name, value)
+
+    ET.indent(root, space="  ")
+    return ET.ElementTree(root)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Fetch a note.com RSS feed and write a feed with only the newest item's title and URL."
+    )
+    parser.add_argument("source", help="RSS URL or local RSS/XML file path")
+    parser.add_argument("output", help="Output RSS file path")
+    args = parser.parse_args()
+
+    try:
+        feed = build_short_feed(read_input(args.source))
+        feed.write(args.output, encoding="utf-8", xml_declaration=True)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
