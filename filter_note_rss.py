@@ -7,18 +7,20 @@ The output feed keeps only the newest item and includes its title and URL.
 from __future__ import annotations
 
 import argparse
-from email.utils import parsedate_to_datetime
 import sys
+import time
 import urllib.request
 import xml.etree.ElementTree as ET
-from pathlib import Path
-
 from datetime import timezone
 from email.utils import format_datetime, parsedate_to_datetime
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+
 
 def rss_date_gmt(value: str) -> str:
     dt = parsedate_to_datetime(value)
     return format_datetime(dt.astimezone(timezone.utc), usegmt=True)
+
 
 def read_input(source: str) -> bytes:
     if source.startswith(("http://", "https://")):
@@ -60,6 +62,7 @@ def read_input(source: str) -> bytes:
             raise last_error
 
     return Path(source).read_bytes()
+
 
 def child_text(element: ET.Element, name: str) -> str:
     child = element.find(name)
@@ -106,35 +109,39 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
     channel = ET.SubElement(root, "channel")
 
     for name in ("title", "link"):
-        set_child(channel, name, child_text(source_channel, name))
+        value = child_text(source_channel, name)
+        if value:
+            set_child(channel, name, value)
 
     set_child(channel, "description", "最新1件の記事タイトルとURL")
 
-    item = ET.SubElement(channel, "item")
-    
     title = child_text(source_item, "title")
     link = child_text(source_item, "link")
     pub_date = child_text(source_item, "pubDate")
-        
-    if title:
-        set_child(item, "title", title)
-    
-    if link:
-        set_child(item, "link", link)
-    
-    if link:
-        guid = ET.SubElement(item, "guid", {"isPermaLink": "true"})
-        guid.text = link
-  
+
+    safe_pub_date = ""
     if pub_date:
         safe_pub_date = rss_date_gmt(pub_date)
         set_child(channel, "lastBuildDate", safe_pub_date)
+
+    item = ET.SubElement(channel, "item")
+
+    if title:
+        set_child(item, "title", title)
+
+    if link:
+        set_child(item, "link", link)
+
+        guid = ET.SubElement(item, "guid", {"isPermaLink": "true"})
+        guid.text = link
+
+    if safe_pub_date:
         set_child(item, "pubDate", safe_pub_date)
-   
+
     description = title
     if link:
         description = f"{title}\n{link}" if title else link
-    
+
     if description:
         set_child(item, "description", description)
 
