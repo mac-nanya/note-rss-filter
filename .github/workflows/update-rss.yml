@@ -44,5 +44,7 @@ jobs:
           fi
       
           git commit -m "Update generated RSS"
-          git pull --rebase
-          git push
+      
+          git pull --rebase origin master
+      
+          git push origin master
