@@ -13,6 +13,13 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from datetime import timezone
+from email.utils import format_datetime, parsedate_to_datetime
+
+def rss_date_gmt(value: str) -> str:
+    dt = parsedate_to_datetime(value)
+    return format_datetime(dt.astimezone(timezone.utc), usegmt=True)
+
 def read_input(source: str) -> bytes:
     if source.startswith(("http://", "https://")):
         headers = {
@@ -108,7 +115,7 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
     title = child_text(source_item, "title")
     link = child_text(source_item, "link")
     pub_date = child_text(source_item, "pubDate")
-    
+        
     if title:
         set_child(item, "title", title)
     
@@ -118,10 +125,12 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
     if link:
         guid = ET.SubElement(item, "guid", {"isPermaLink": "true"})
         guid.text = link
-    
+  
     if pub_date:
-        set_child(item, "pubDate", pub_date)
-    
+        safe_pub_date = rss_date_gmt(pub_date)
+        set_child(channel, "lastBuildDate", safe_pub_date)
+        set_child(item, "pubDate", safe_pub_date)
+   
     description = title
     if link:
         description = f"{title}\n{link}" if title else link
