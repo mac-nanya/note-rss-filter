@@ -13,18 +13,46 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
 def read_input(source: str) -> bytes:
     if source.startswith(("http://", "https://")):
-        request = urllib.request.Request(
-            source,
-            headers={"User-Agent": "note-rss-filter/1.0"},
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read()
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        }
+
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            try:
+                request = urllib.request.Request(source, headers=headers)
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return response.read()
+            except HTTPError as exc:
+                last_error = exc
+                print(
+                    f"warning: HTTP error {exc.code}: {exc.reason} "
+                    f"(attempt {attempt + 1}/3)",
+                    file=sys.stderr,
+                )
+                time.sleep(10)
+            except URLError as exc:
+                last_error = exc
+                print(
+                    f"warning: URL error: {exc.reason} "
+                    f"(attempt {attempt + 1}/3)",
+                    file=sys.stderr,
+                )
+                time.sleep(10)
+
+        if last_error is not None:
+            raise last_error
 
     return Path(source).read_bytes()
-
 
 def child_text(element: ET.Element, name: str) -> str:
     child = element.find(name)
