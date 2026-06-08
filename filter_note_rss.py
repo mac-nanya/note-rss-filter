@@ -104,10 +104,30 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
     set_child(channel, "description", "最新1件の記事タイトルとURL")
 
     item = ET.SubElement(channel, "item")
-    for name in ("title", "link"):
-        value = child_text(source_item, name)
-        if value:
-            set_child(item, name, value)
+    
+    title = child_text(source_item, "title")
+    link = child_text(source_item, "link")
+    pub_date = child_text(source_item, "pubDate")
+    
+    if title:
+        set_child(item, "title", title)
+    
+    if link:
+        set_child(item, "link", link)
+    
+    if link:
+        guid = ET.SubElement(item, "guid", {"isPermaLink": "true"})
+        guid.text = link
+    
+    if pub_date:
+        set_child(item, "pubDate", pub_date)
+    
+    description = title
+    if link:
+        description = f"{title}\n{link}" if title else link
+    
+    if description:
+        set_child(item, "description", description)
 
     ET.indent(root, space="  ")
     return ET.ElementTree(root)
