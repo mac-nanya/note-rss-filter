@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p docs
           python3 filter_note_rss.py \
-            https://note.com/metakit/m/m36e9f0d75349/rss \
+            https://note.com/metakit/rss \
             docs/metakit_note_short.rss
 
       - name: Validate RSS XML
