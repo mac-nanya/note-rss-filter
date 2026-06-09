@@ -1,76 +1,42 @@
 #!/usr/bin/env python3
 """Create a minimal RSS feed from a note.com RSS feed.
 
-The output feed keeps only the newest item and includes:
+The output feed keeps only the newest item and includes only:
 - channel title
 - channel link
 - channel description
-- channel lastBuildDate converted to GMT
-- newest item title
-- newest item URL
-
-This intentionally avoids item guid, item pubDate, and item description
-for compatibility with simple RSS readers such as quote/0.
+- item title
+- item link
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import time
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import timezone
-from email.utils import format_datetime, parsedate_to_datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-
-
-def rss_date_gmt(value: str) -> str:
-    """Convert RSS date string to GMT format."""
-    dt = parsedate_to_datetime(value)
-    return format_datetime(dt.astimezone(timezone.utc), usegmt=True)
 
 
 def read_input(source: str) -> bytes:
     """Read RSS from URL or local file."""
     if source.startswith(("http://", "https://")):
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/rss+xml, application/xml, text/xml, */*",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        }
+        request = urllib.request.Request(
+            source,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/rss+xml, application/xml, text/xml, */*",
+                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+            },
+        )
 
-        last_error: Exception | None = None
-
-        for attempt in range(3):
-            try:
-                request = urllib.request.Request(source, headers=headers)
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    return response.read()
-            except HTTPError as exc:
-                last_error = exc
-                print(
-                    f"warning: HTTP error {exc.code}: {exc.reason} "
-                    f"(attempt {attempt + 1}/3)",
-                    file=sys.stderr,
-                )
-                time.sleep(10)
-            except URLError as exc:
-                last_error = exc
-                print(
-                    f"warning: URL error: {exc.reason} "
-                    f"(attempt {attempt + 1}/3)",
-                    file=sys.stderr,
-                )
-                time.sleep(10)
-
-        if last_error is not None:
-            raise last_error
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
 
     return Path(source).read_bytes()
 
@@ -88,8 +54,9 @@ def set_child(parent: ET.Element, name: str, value: str) -> None:
 
 
 def item_date(item: ET.Element):
-    """Get item pubDate as datetime, if possible."""
+    """Return pubDate as datetime, if available."""
     pub_date = child_text(item, "pubDate")
+
     if not pub_date:
         return None
 
@@ -111,7 +78,7 @@ def newest_item(items: list[ET.Element]) -> ET.Element:
 
 
 def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
-    """Build minimal RSS feed for quote/0."""
+    """Build minimal RSS feed."""
     source_root = ET.fromstring(feed_bytes)
     source_channel = source_root.find("channel")
 
@@ -139,27 +106,16 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
 
     set_child(channel, "description", "最新1件の記事タイトルとURL")
 
-    # Prefer source channel lastBuildDate.
-    # If it does not exist, fall back to newest item's pubDate.
-    source_last_build_date = child_text(source_channel, "lastBuildDate")
-    source_pub_date = child_text(source_item, "pubDate")
-
-    date_source = source_last_build_date or source_pub_date
-
-    if date_source:
-        safe_date = rss_date_gmt(date_source)
-        set_child(channel, "lastBuildDate", safe_date)
-
     item = ET.SubElement(channel, "item")
 
-    title = child_text(source_item, "title")
-    link = child_text(source_item, "link")
+    item_title = child_text(source_item, "title")
+    item_link = child_text(source_item, "link")
 
-    if title:
-        set_child(item, "title", title)
+    if item_title:
+        set_child(item, "title", item_title)
 
-    if link:
-        set_child(item, "link", link)
+    if item_link:
+        set_child(item, "link", item_link)
 
     ET.indent(root, space="  ")
     return ET.ElementTree(root)
@@ -167,10 +123,7 @@ def build_short_feed(feed_bytes: bytes) -> ET.ElementTree:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Fetch a note.com RSS feed and write a minimal feed "
-            "with only the newest item's title and URL."
-        )
+        description="Fetch an RSS feed and write a minimal feed with only the newest item's title and URL."
     )
     parser.add_argument("source", help="RSS URL or local RSS/XML file path")
     parser.add_argument("output", help="Output RSS file path")
